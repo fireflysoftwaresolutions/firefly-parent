@@ -250,7 +250,7 @@
                         <artifactId>flatten-maven-plugin</artifactId>
                         <version>1.7.0</version>
                         <configuration>
-                            <flattenMode>ossrh</flattenMode>
+                            <flattenMode>resolveCiFriendliesOnly</flattenMode>
                             <updatePomFile>true</updatePomFile>
                             <pomElements>
                                 <dependencies>resolve</dependencies>

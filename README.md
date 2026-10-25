@@ -35,7 +35,7 @@ org.fireflyframework:fireflyframework-parent  (Spring Boot, Lombok, plugins, …
 
 ## Usage
 
-Reference `firefly-parent` as the parent in your module's `pom.xml`:
+Reference `firefly-parent` as the parent in your module's `pom.xml`. This excerpt shows the current source coordinates; the published `26.10.6` POM does not retain this inheritance contract. Consumer adoption requires a separately approved corrected parent release, as described below.
 
 ```xml
 <parent>
@@ -53,7 +53,26 @@ Your module then inherits:
 
 No need to declare `fireflyframework.bom.version` or import the `fireflyframework-bom` in your module — the parent handles it.
 
-**Maven Central** hosts `26.10.20` (`https://repo1.maven.org/maven2/org/fireflyframework/fireflyframework-parent/26.10.20/`). No extra repository is required for OpenPlatform builds that can reach Central. For air-gapped or pre-sync CI, use a local `./mvnw install` of `fireflyframework-jafly`, or activate `-Pjafly-packages` for GitHub Packages (`https://maven.pkg.github.com/fireflyframework/fireflyframework-jafly`) with `read:packages` credentials for Maven server id `firefly-github`.
+**Maven Central** hosts the framework parent/BOM `26.10.20` (`https://repo1.maven.org/maven2/org/fireflyframework/fireflyframework-parent/26.10.20/`). Their availability does not prove that the separately published OpenPlatform `firefly-parent:26.10.6` works: that artifact lost the build-parent metadata during flattening. Adding a repository or installing the same OpenPlatform coordinates locally does not qualify the broken published parent. A new corrected parent release and coordinated consumer updates are required.
+
+## Published parent contract
+
+The release profile uses Flatten Maven Plugin 1.7.0's `resolveCiFriendliesOnly` mode because this artifact is a build parent. The published POM must retain its parent chain, properties, imported dependency management, and inherited plugin management. The previous `ossrh` mode removed that contract. Existing release-profile inheritance is intentional: descendant publication POMs must remain usable through the retained parent chain too.
+
+The already published `26.10.6` artifact is immutable. This source correction requires a separately approved new parent version and coordinated consumer parent-version updates; do not republish `26.10.6` or treat a local same-version install/cache replacement as consumer qualification. The source version remains unchanged in this checkpoint, and no release is authorized by the regression script.
+
+Run the bounded file-only regression with Python 3.11 or newer, an existing Maven 3.9.16 distribution, and JDK 25.0.3:
+
+```bash
+python3 tests/verify_parent_contract.py \
+  --maven /path/to/apache-maven-3.9.16/bin/mvn \
+  --java-home /path/to/jdk-25.0.3 \
+  --output /absolute/path/to/new-owned-evidence
+```
+
+When omitted, `--maven` uses `MAVEN_EXECUTABLE` or `mvn` on `PATH`; `--java-home` uses `JAVA_HOME`. The resolver checks Maven's distribution metadata and the JDK release file before running a model check. It supports macOS and Linux with their platform JVM libraries and rejects unsupported layouts/platforms. It records resolved paths and launcher/distribution/JDK hashes in `tool-resolution.json` and `tool-pins.json`. It never installs or downloads Maven or a JDK.
+
+The script retains the original Git-source `ossrh` failure and corrected-mode results in separate directories. It runs direct flatten/effective-model goals against genuine Maven consumers using explicit relative paths to the generated publication POMs, including a flattened descendant. It uses a new Central-only, credential-free dependency cache, bounded processes and output sizes, and never invokes install, deploy, release lifecycle, signing, applications, databases, or listeners. Existing evidence directories are preserved. The generated POMs are file-only test artifacts, not replacement repository coordinates.
 
 ## Properties
 
@@ -158,7 +177,7 @@ Prefer Central for **26.10.20+**. Leave `-Pjafly-packages` off by default. Alter
 
 When bumping a service onto this parent:
 
-1. Install `firefly-parent:26.10.6` (this repo) so the BOM pin is **26.10.20**.
+1. Adopt a separately approved corrected parent release and update the service's parent version. Do not install this source checkpoint under the already published `firefly-parent:26.10.6` coordinates as a consumer workaround; the framework BOM remains pinned to **26.10.20**.
 2. In each `-sdk` module: drop hardcoded `openapi-generator.version` / Jackson / swagger pins; inherit plugin + dependency versions from `fireflyframework-parent`; set `useJakartaEe=true` on the webclient generator; keep `javax.annotation-api` only while the generator still emits `javax.annotation.Generated`; add `spring-webflux` for the WebClient SDK runtime.
 3. Apply Boot 4 config migrations from the [jafly Boot 4 guide](https://github.com/fireflyframework/fireflyframework-jafly/blob/main/docs/migration/boot4-application-guide.md) where used: `spring.jackson2.*` (not `spring.jackson.*`), OTLP tracing keys, Testcontainers 2 module names, springdoc 3.x.
 4. Regenerate OpenAPI via the parent `generate-openapi` profile (`openapi.gen.skip=false` on `-web`); skip with `-DskipOpenApiGen` when iterating compile-only.
@@ -175,6 +194,8 @@ Prefer dependency order **core → domain → exp** for the same capability:
 
 ### Roll-out status (2026-10-18/19)
 
+This historical source-migration snapshot is not verification of the published `firefly-parent:26.10.6` consumer contract or of current service builds. The published-parent correction and subsequent consumer qualification remain separate requirements.
+
 **Train:** jafly **26.10.20** / Spring Boot **4.1.1** / Java **25** — consumed from **Maven Central** (optional `-Pjafly-packages` fallback).
 
 | Layer | Status | Notes |
@@ -189,7 +210,7 @@ Prefer dependency order **core → domain → exp** for the same capability:
 | `library-psps`, `library-rails` | **N/A (deferred)** | Still on `resilience4j-spring-boot3`; no OpenAPI SDK; out of this cutover |
 | `app-authenticator`, `app-configurator-masters` | **N/A (deferred)** | Thin apps; bump with consumer cutover |
 
-Verify a service with: `JAVA_HOME=$(/usr/libexec/java_home -v 25) mvn -B -ntp clean test -DskipOpenApiGen`.
+For a service using a separately qualified parent release, select its required JDK explicitly, for example: `JAVA_HOME=/path/to/jdk-25.0.3 mvn -B -ntp clean test -DskipOpenApiGen`. This disables the live OpenAPI profile, not the SDK generator; service-test results remain separate from the file-only parent regression.
 
 ## Related
 
