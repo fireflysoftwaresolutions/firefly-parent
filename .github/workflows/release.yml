@@ -2,16 +2,34 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Validate only; publication requires all coordinated release gates
+        type: boolean
+        default: true
+      destination:
+        description: Central requires a separately reviewed signing fingerprint in the policy
+        type: choice
+        options: [github, central, both]
+        default: github
   push:
     tags: ['v*']
 
+permissions:
+  contents: read
+
 jobs:
   release:
-    uses: fireflysoftwaresolutions/.github/.github/workflows/java-release.yml@main
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: fireflysoftwaresolutions/.github/.github/workflows/java-release.yml@7b046ce67239bf889ab68e380614ba34723c9392
     permissions:
+      actions: read
       contents: write
       packages: write
     with:
       java-version: '25'
-      destination: both
+      release-tag: ${{ github.ref_name }}
+      release-policy: .github/release-policy.json
+      destination: ${{ inputs.destination || 'github' }}
+      dry-run: ${{ github.event_name == 'push' || inputs.dry-run }}
     secrets: inherit

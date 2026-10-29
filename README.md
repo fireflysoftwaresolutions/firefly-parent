@@ -217,3 +217,22 @@ For a service using a separately qualified parent release, select its required J
 - [fireflyframework-jafly](https://github.com/fireflyframework/fireflyframework-jafly) - Unified Firefly Framework (parent, BOM, libraries)
 - [Boot 4 application migration guide](https://github.com/fireflyframework/fireflyframework-jafly/blob/main/docs/migration/boot4-application-guide.md)
 - [firefly-bom](https://github.com/firefly-oss/firefly-bom) - Bill of Materials for all `io.fireflysoftware` artifacts
+
+## Immutable release workflow adoption
+
+Both release callers pin the reviewed shared workflow at `7b046ce67239bf889ab68e380614ba34723c9392` and load `.github/release-policy.json` from the exact tagged source. Dispatch must select an existing `vYY.MM.Patch` tag. The caller passes that ref's name; branch dispatches skip the release job. The shared gate verifies local and remote tag/source identity and refuses an existing GitHub release. Tag pushes validate only. Manual dispatch also defaults to `dry-run=true`; publication requires explicitly selecting false after the coordinated technical gates pass.
+
+This repository has one POM project, no ordinary JUnit suites, and no producer or SDK. The explicit POM-only policy runs the normal `release` profile with `clean verify` and captures the effective model in the same invocation. The publication file is `.flattened-pom.xml`, the actual POM selected by that lifecycle. Source/Javadoc goals remain enabled; POM packaging produces no attached JARs. This exemption cannot qualify service reactors or their original producer/SDK gates.
+
+The policy records the current source version `26.10.6`, which is already published. It does not authorize republishing it. A future release requires a separately reconciled and reserved numeric monthly patch, coordinated POM/policy updates, an immutable tag at the reviewed source, and fresh cold validation. No version is allocated here. Central and `both` remain blocked because the policy deliberately has no unreviewed signing fingerprint; add the independently reviewed complete fingerprint before qualifying those destinations. GitHub-only validation is the default route.
+
+Offline caller controls require Python 3.11+, Ruby with its standard YAML/JSON libraries, and a clean checkout of the exact shared workflow implementation. No helper implementation is copied into this repository:
+
+```bash
+git clone https://github.com/fireflysoftwaresolutions/.github.git ../release-tools
+git -C ../release-tools checkout --detach 7b046ce67239bf889ab68e380614ba34723c9392
+PYTHONDONTWRITEBYTECODE=1 RELEASE_TOOLS_ROOT=../release-tools python3 -B -m unittest discover -s tests -p 'test_*.py' -v
+actionlint .github/workflows/release.yml .github/workflows/maven-central.yml
+```
+
+Use a sibling checkout for `release-tools` when preparing a release source tree. These controls verify the caller contract and exercise the real pinned helper's positive/refusal behavior against synthetic files. They do not establish hosted workflow execution, signing, publication, tag/release creation, downloaded registry bytes, new parent consumer adoption, or full-platform acceptance. Cold Maven qualification must use a new empty owned cache and only already released dependencies; an unavailable dependency is a retained failure, never a reason to install upstream source under released coordinates.

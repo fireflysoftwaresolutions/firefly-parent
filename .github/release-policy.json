@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "pom",
+  "profiles": [
+    "release"
+  ],
+  "suites": [],
+  "minimum_tests": 0,
+  "artifacts": [
+    {
+      "groupId": "io.fireflysoftware",
+      "artifactId": "firefly-parent",
+      "version": "26.10.6",
+      "packaging": "pom",
+      "files": {
+        ".pom": ".flattened-pom.xml"
+      }
+    }
+  ]
+}
