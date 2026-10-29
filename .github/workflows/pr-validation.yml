@@ -1,0 +1,132 @@
+name: Read-only POM validation
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout exact caller source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+      - name: Checkout reviewed validation tools
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: fireflysoftwaresolutions/.github
+          ref: 7b046ce67239bf889ab68e380614ba34723c9392
+          path: release-tools
+          persist-credentials: false
+      - name: Set up JDK 25
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          java-version: '25'
+          distribution: temurin
+      - name: Test and validate cold POM outputs
+        id: validate
+        run: |
+          python3 -B - <<'PY'
+          import hashlib, json, os, re, subprocess, sys, tempfile
+          from pathlib import Path
+          workspace = Path(os.environ['GITHUB_WORKSPACE'])
+          source, tools = workspace / 'source', workspace / 'release-tools'
+          sys.path.insert(0, str(tools / 'scripts'))
+          import java_release as release
+          evidence = Path(os.environ['RUNNER_TEMP']) / 'java-pr-validation-evidence'
+          evidence.mkdir(mode=0o700)
+          work = Path(tempfile.mkdtemp(prefix='java-pr-validation-', dir=os.environ['RUNNER_TEMP']))
+          cache = work / 'cold-maven'
+          cache.mkdir(mode=0o700)
+          settings = work / 'settings.xml'
+          settings.write_text('<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"/>')
+          settings.chmod(0o600)
+          log, effective, proof = work / 'normal-build.log', work / 'effective-pom.xml', work / 'unused-sdk-proof.json'
+          ordinary = work / 'ordinary-controls.log'
+          phase = 'TEST_EVIDENCE'
+          try:
+              workflow_sha = release.command(['git', 'rev-parse', 'HEAD'], cwd=tools, capture_output=True, text=True).stdout.strip()
+              if workflow_sha != '7b046ce67239bf889ab68e380614ba34723c9392' or release.digest(tools / 'scripts/java_release.py') != '7698c8fec01da13db8f70e831fb207b6d7774a2f7d4cb36bccaeaa6f1228606d':
+                  raise ValueError('Reviewed immutable validation tools required')
+              source_sha = release.command(['git', 'rev-parse', 'HEAD'], cwd=source, capture_output=True, text=True).stdout.strip()
+              if source_sha != os.environ['GITHUB_SHA'] or release.command(['git', 'status', '--porcelain'], cwd=source, capture_output=True, text=True).stdout or any(source.glob('**/target')):
+                  raise ValueError('Exact clean caller source required')
+              for relative in ('.mvn/maven.config', '.mvn/jvm.config', '.mvn/extensions.xml'):
+                  path = source / relative
+                  if path.exists() and path.read_text().strip():
+                      raise ValueError('Nonempty Maven launcher configuration requires separate review')
+              policy_path = release.owned_file(source, '.github/release-policy.json')
+              policy = json.loads(policy_path.read_text())
+              release.validate_policy(policy)
+              if policy['kind'] != 'pom':
+                  raise ValueError('This CI gate qualifies POM-only repositories')
+              before = release.source_snapshot(source)
+              if '.github/release-policy.json' not in {row['path'] for row in before}:
+                  raise ValueError('Tracked release policy required')
+              env = dict(os.environ, RELEASE_TOOLS_ROOT=str(tools), MAVEN_SKIP_RC='true', PYTHONDONTWRITEBYTECODE='1')
+              for key in ('MAVEN_OPTS', 'MAVEN_ARGS', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS', '_JAVA_OPTIONS', 'MAVEN_EXT_CLASS_PATH', 'MAVEN_USER_HOME', 'CLASSPATH'):
+                  release.no_suppression(env.get(key, ''))
+                  env.pop(key, None)
+              versions = {}
+              for name, args, pattern in [('java', ['java', '-version'], r'version "([0-9]+(?:\.[0-9]+)*)'), ('maven', ['mvn', '--version'], r'Apache Maven ([0-9]+(?:\.[0-9]+)*)')]:
+                  observed = release.command(args, cwd=source, env=env, capture_output=True, text=True)
+                  raw = observed.stdout + '\n' + observed.stderr
+                  matched = re.search(pattern, raw)
+                  if not matched or name == 'java' and matched.group(1).split('.')[0] != '25':
+                      raise ValueError('Qualified numeric JDK/Maven version required')
+                  versions[name + '_version'] = matched.group(1)
+                  versions[name + '_output_sha256'] = hashlib.sha256(raw.encode()).hexdigest()
+              with os.fdopen(os.open(ordinary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+                  release.command([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_*.py', '-v'], cwd=source, env=env, stdout=output, stderr=subprocess.STDOUT, stream_console=True)
+              phase = 'COLD_BUILD'
+              maven = ['mvn', '-B', '-ntp', '-s', str(settings), '-gs', str(settings), '-Dmaven.repo.local=' + str(cache)]
+              if policy['profiles']:
+                  maven += ['-P' + ','.join(policy['profiles'])]
+              with os.fdopen(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+                  release.command(maven + ['clean', 'verify', 'org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-pom', '-Doutput=' + str(effective)], cwd=source, env=env, stdout=output, stderr=subprocess.STDOUT, stream_console=True)
+              phase = 'EFFECTIVE_POM'
+              release.check_files(source, before)
+              if release.source_snapshot(source) != before:
+                  raise ValueError('Tracked source inventory changed')
+              projects = release.effective_projects(effective)
+              phase = 'TEST_EVIDENCE'
+              tests = release.test_evidence(source, policy)
+              phase = 'FREEZE'
+              frozen = work / 'frozen'
+              frozen.mkdir(mode=0o700)
+              artifacts = release.freeze(source, frozen, policy, projects)
+              release.check_files(source, before)
+              if release.source_snapshot(source) != before:
+                  raise ValueError('Tracked source inventory changed')
+              result = {'schema': 1, 'repository': os.environ['GITHUB_REPOSITORY'], 'source_sha': source_sha,
+                  'workflow_sha': workflow_sha, 'tools': versions, 'helper_sha256': release.digest(tools / 'scripts/java_release.py'),
+                  'policy_sha256': release.digest(policy_path), 'source_snapshot_sha256': hashlib.sha256(json.dumps(before, sort_keys=True).encode()).hexdigest(),
+                  'ordinary_controls_log_sha256': release.digest(ordinary), 'normal_build_log_sha256': release.digest(log),
+                  'effective_pom_sha256': release.digest(effective), 'projects': projects, 'tests': tests,
+                  'artifacts': artifacts, 'publication': False}
+              encoded = json.dumps(result, sort_keys=True, indent=2) + '\n'
+              if len(encoded.encode()) > 131072:
+                  raise ValueError('Validation proof exceeds its bounded JSON limit')
+              (evidence / 'validation-proof.json').write_text(encoded)
+          except (ValueError, KeyError, OSError, subprocess.CalledProcessError, release.ET.ParseError) as error:
+              release.validation_failure(evidence, phase, error, log, effective, proof)
+              sys.exit(error.returncode if isinstance(error, subprocess.CalledProcessError) and error.returncode > 0 else 1)
+          PY
+      - name: Retain bounded validation proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/java-pr-validation-evidence/validation-proof.json
+            ${{ runner.temp }}/java-pr-validation-evidence/validation-failure.json
+          if-no-files-found: error
+          retention-days: 7

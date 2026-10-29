@@ -236,3 +236,9 @@ actionlint .github/workflows/release.yml .github/workflows/maven-central.yml
 ```
 
 Use a sibling checkout for `release-tools` when preparing a release source tree. These controls verify the caller contract and exercise the real pinned helper's positive/refusal behavior against synthetic files. They do not establish hosted workflow execution, signing, publication, tag/release creation, downloaded registry bytes, new parent consumer adoption, or full-platform acceptance. Cold Maven qualification must use a new empty owned cache and only already released dependencies; an unavailable dependency is a retained failure, never a reason to install upstream source under released coordinates.
+
+## Read-only pull request validation
+
+`pr-validation.yml` checks the exact PR source with read-only repository permission and the same immutable shared helper. It runs all Python controls, then the normal `release` profile's `clean verify` and effective-POM capture in one Maven invocation using new private settings and an empty owned dependency cache. The helper validates the policy, effective POM, test evidence, unchanged tracked source and exact frozen publication POM. Nonempty Maven launcher configuration requires separate review. The job records the actual caller/tool SHAs, numeric JDK/Maven versions and evidence hashes.
+
+The artifact contains only bounded success or closed failure JSON; raw build output, effective XML, settings and cache remain private runner files. This CI path validates already declared POM coordinates without requiring or creating a release tag and never calls publication. A hosted passing run is separate evidence from local workflow controls, corrected parent consumer adoption, immutable release qualification, signing or registry publication.
