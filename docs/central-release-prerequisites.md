@@ -21,14 +21,16 @@ private key, a successful hosted signing operation, or current publishing rights
 
 The manual `Read-only Sonatype namespace inventory` workflow runs only from the
 repository default branch. It uses the exact workflow source, only the Sonatype
-credential pair, authenticated GET requests to the fixed Portal endpoint and the
-fixed `io.fireflysoftware` namespace. Credentials never enter the report. Redirects
+credential pair, authenticated GET listing requests and, only for missing or null
+component PURLs, an empty-body POST to the documented read-only
+`/api/v1/publisher/status?id=<listed-deployment-id>` query. Both endpoints use
+fixed HTTPS paths and the fixed `io.fireflysoftware` namespace. Credentials never enter the report. Redirects
 and environment proxies are refused. Two bounded complete sweeps must agree;
 failures produce an explicit incomplete report. Reports retain supported Maven
 type/classifier identity and fixed safe reason codes. The worker limit is 120 seconds,
 each response is capped at 2 MiB, and the listing is capped at 100 pages/100000 components.
 
-The parser is copied from the independently qualified Jafly source with only its
+The parser originated in the independently qualified Jafly source with its
 two namespace constants adapted. Original source SHA-256:
 `9a2582372c56486145fbdc74a88c76b42c913fb86d24aa430d77c1ad87889c67`.
 An authenticated empty listing is distinct from a404 or incomplete listing.
@@ -47,3 +49,19 @@ Parent6 and Jafly20 remain pinned. A future Jafly23 adoption requires actual Cen
 publication proof first. Parent21 and BOM7 remain unreserved by this source
 change. Any later allocation must reconcile published versions and actual
 account-visible staged deployments before separately reviewed release actions.
+
+Status reconciliation validates the exact listed deployment ID and state, bounded
+nonempty canonical namespace PURLs, uniqueness, and inclusion of any already known
+listing coordinates. The sanitized listing and status observations must match in
+two sweeps under the same outer worker deadline and total component budget.
+Neither the official status response schema nor its examples assert an exhaustive
+mapping from status PURLs to listing rows with missing PURLs. Those rows therefore
+remain `INCOMPLETE` / `PURL_MISSING`, with `PURL_COVERAGE_UNPROVEN`; a nonempty status
+PURL array never authorizes allocation or silently reclassifies an unknown row.
+Names, paths, errors, raw bodies, and credentials never supply missing coordinates.
+
+This boundary follows the official [Publisher API](https://central.sonatype.com/api-doc)
+and [status query documentation](https://central.sonatype.org/publish/publish-portal-api/#checking-status).
+A separately established complete coordinate contract is still required to resolve
+unknown-row coverage. This source change does not establish authenticated account
+visibility, historical reservation completeness, or a successful Portal query.

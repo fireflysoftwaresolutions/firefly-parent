@@ -367,7 +367,9 @@ class MavenPurlContractTests(unittest.TestCase):
 class ComponentDiagnosticTests(unittest.TestCase):
     def report(self, component):
         row = deployment(); row['deploymentComponents'] = [component]
-        api = Api([page([row])])
+        status = {'deploymentId': row['deploymentId'], 'deploymentState': row['deploymentState'],
+                  'purls': ['pkg:maven/io.fireflysoftware/diagnostic@1']}
+        api = Api([page([row]), status, page([copy.deepcopy(row)]), copy.deepcopy(status)])
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory) / 'report.json'
             with patch.dict(os.environ, {'SONATYPE_USERNAME': 'synthetic', 'SONATYPE_PASSWORD': 'synthetic'}, clear=True), \
