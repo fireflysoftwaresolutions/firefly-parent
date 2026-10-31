@@ -35,6 +35,14 @@ An authenticated empty listing is distinct from a404 or incomplete listing.
 Account-visible two-sweep stability is not an atomic or global Portal snapshot.
 The workflow does not upload, publish, allocate a version, sign, or run Maven.
 
+An unsupported component with a missing, empty or non-string PURL still makes the
+inventory incomplete. Its failure report includes only a bounded structural
+description: fixed known-field type labels, field counts, and at most eight
+SHA-256 hashes of unknown field names. Component values, raw bodies, names, paths,
+errors and credentials are excluded. This diagnostic does not supply coordinates
+or permit version allocation; the actual schema must be established and separately
+validated before the component can be accepted.
+
 Parent6 and Jafly20 remain pinned. A future Jafly23 adoption requires actual Central
 publication proof first. Parent21 and BOM7 remain unreserved by this source
 change. Any later allocation must reconcile published versions and actual

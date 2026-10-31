@@ -364,5 +364,68 @@ class MavenPurlContractTests(unittest.TestCase):
             self.assertFalse(report['versionAllocated'])
 
 
+class ComponentDiagnosticTests(unittest.TestCase):
+    def report(self, component):
+        row = deployment(); row['deploymentComponents'] = [component]
+        api = Api([page([row])])
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / 'report.json'
+            with patch.dict(os.environ, {'SONATYPE_USERNAME': 'synthetic', 'SONATYPE_PASSWORD': 'synthetic'}, clear=True), \
+                 patch.object(m.urllib.request, 'build_opener', return_value=api):
+                self.assertEqual(1, m.worker(out))
+            report = json.loads(out.read_text())
+            self.assertEqual('INCOMPLETE', report['status'])
+            self.assertFalse(report['versionAllocated'])
+            self.assertNotIn('PRIVATE-', out.read_text())
+            self.assertNotIn('TOKEN-SENTINEL', out.read_text())
+            self.assertEqual(0o600, out.stat().st_mode & 0o777)
+            return report
+
+    def test_missing_purl_reports_known_field_types_without_values(self):
+        report = self.report({'packageUrl': 'PRIVATE-URL', 'name': 'PRIVATE-NAME',
+                              'errors': ['PRIVATE-ERROR'], 'PRIVATE-FIELD-NAME': 'TOKEN-SENTINEL'})
+        self.assertEqual('PURL_MISSING', report['reasonCode'])
+        self.assertIn('componentSchema', report)
+        self.assertEqual({'schema': 1, 'componentKind': 'object', 'fieldCount': 4,
+                          'knownFieldTypes': {'packageUrl': 'string', 'name': 'string', 'errors': 'array'},
+                          'unknownFieldCount': 1, 'unknownFieldNamesSha256': ['7640b675f865ebb3b23d429d8802477416c8ce644eaed5f3c65049c5ee66a32d'],
+                          'unknownFieldsTruncated': False}, report['componentSchema'])
+
+    def test_missing_and_null_or_non_string_purl_remain_distinct_refusals(self):
+        for component, expected in [({}, {}), ({'purl': None}, {'purl': 'null'}),
+                                    ({'purl': False}, {'purl': 'boolean'}),
+                                    ({'purl': 1}, {'purl': 'number'}),
+                                    ({'purl': []}, {'purl': 'array'}),
+                                    ({'purl': ''}, {'purl': 'string'})]:
+            with self.subTest(expected=expected):
+                report = self.report(component)
+                self.assertIn('componentSchema', report)
+                self.assertEqual(expected, report['componentSchema']['knownFieldTypes'])
+
+    def test_unknown_field_report_is_bounded_and_contains_no_field_names(self):
+        report = self.report({f'PRIVATE-FIELD-{index}': 'PRIVATE-VALUE' for index in range(128)})
+        self.assertIn('componentSchema', report)
+        diagnostic = report['componentSchema']
+        self.assertEqual(128, diagnostic['fieldCount'])
+        self.assertEqual(128, diagnostic['unknownFieldCount'])
+        self.assertEqual({}, diagnostic['knownFieldTypes'])
+        self.assertEqual(8, len(diagnostic['unknownFieldNamesSha256']))
+        self.assertTrue(diagnostic['unknownFieldsTruncated'])
+        self.assertLess(len(json.dumps(report)), 1500)
+        for value in diagnostic['unknownFieldNamesSha256']:
+            self.assertRegex(value, r'^[0-9a-f]{64}$')
+
+    def test_nested_values_never_enter_the_structural_report(self):
+        report = self.report({'purl': {'PRIVATE-NESTED-KEY': 'TOKEN-SENTINEL'},
+                              'coordinates': {'PRIVATE-SECRET': ['PRIVATE-ERROR']}})
+        self.assertIn('componentSchema', report)
+        self.assertEqual({'purl': 'object', 'coordinates': 'object'}, report['componentSchema']['knownFieldTypes'])
+
+    def test_other_coordinate_refusals_do_not_gain_arbitrary_diagnostics(self):
+        report = self.report({'purl': 'pkg:maven/io.fireflysoftware/a@1#PRIVATE-SUBPATH'})
+        self.assertEqual('PURL_SUBPATH', report['reasonCode'])
+        self.assertNotIn('componentSchema', report)
+
+
 if __name__ == '__main__':
     unittest.main()

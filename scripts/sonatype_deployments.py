@@ -3,6 +3,8 @@
 import argparse
 import base64
 from datetime import datetime
+import hashlib
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -23,13 +25,18 @@ WORK_SECONDS = 120
 PURL = re.compile(r'pkg:maven/io\.fireflysoftware/([A-Za-z0-9][A-Za-z0-9_.-]{0,199})@([A-Za-z0-9][A-Za-z0-9_.+-]{0,127})')
 QUALIFIER_VALUE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}')
 IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}')
+COMPONENT_FIELDS = ('purl', 'packageUrl', 'packageURL', 'packageType', 'type', 'name',
+                    'namespace', 'groupId', 'artifactId', 'version', 'classifier', 'packaging',
+                    'extension', 'filename', 'fileName', 'path', 'errors', 'warnings',
+                    'coordinates', 'componentName', 'componentId', 'id', 'gav')
 
 
 class InventoryError(ValueError):
     """Only fixed, credential-free diagnostics may cross this boundary."""
-    def __init__(self, message, reason_code=None):
+    def __init__(self, message, reason_code=None, component_schema=None):
         super().__init__(message)
         self.reason_code = reason_code
+        self.component_schema = component_schema
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -101,8 +108,23 @@ def timestamp(value):
 
 
 
-def coordinate_error(code):
-    raise InventoryError('Portal component Maven coordinates are unsupported.', code) from None
+def component_schema(component):
+    types = {type(None): 'null', bool: 'boolean', int: 'number', float: 'number',
+             str: 'string', list: 'array', dict: 'object'}
+    known = {key: types.get(type(component[key]), 'unsupported')
+             for key in COMPONENT_FIELDS if key in component}
+    unknown_count = len(component) - len(known)
+    unknown = islice((key for key in component if key not in COMPONENT_FIELDS), 8)
+    hashes = sorted(hashlib.sha256(key.encode('utf-8', 'surrogatepass')).hexdigest()
+                    for key in unknown)
+    return {'schema': 1, 'componentKind': 'object', 'fieldCount': len(component),
+            'knownFieldTypes': known, 'unknownFieldCount': unknown_count,
+            'unknownFieldNamesSha256': hashes, 'unknownFieldsTruncated': unknown_count > len(hashes)}
+
+
+def coordinate_error(code, component=None):
+    diagnostic = component_schema(component) if component is not None else None
+    raise InventoryError('Portal component Maven coordinates are unsupported.', code, diagnostic) from None
 
 
 def decode_coordinate(value):
@@ -122,7 +144,7 @@ def maven_coordinate(component):
         coordinate_error('PURL_COMPONENT')
     purl = component.get('purl')
     if not isinstance(purl, str) or not purl:
-        coordinate_error('PURL_MISSING')
+        coordinate_error('PURL_MISSING', component)
     if len(purl) > 2048:
         coordinate_error('PURL_BOUNDS')
     scheme, colon, rest = purl.partition(':')
@@ -260,9 +282,10 @@ def write_report(output, report):
         stream.write('\n')
 
 
-def incomplete(reason='Portal reconciliation did not complete.', reason_code=None):
+def incomplete(reason='Portal reconciliation did not complete.', reason_code=None, component_schema=None):
     return {'schema': 1, 'status': 'INCOMPLETE', 'namespace': NAMESPACE, 'reason': reason,
             **({'reasonCode': reason_code} if reason_code is not None else {}),
+            **({'componentSchema': component_schema} if component_schema is not None else {}),
             'versionAllocated': False, 'releasePublished': False}
 
 
@@ -273,7 +296,7 @@ def worker(output):
         write_report(output, report)
         return 0
     except InventoryError as error:
-        write_report(output, incomplete(str(error), error.reason_code))
+        write_report(output, incomplete(str(error), error.reason_code, error.component_schema))
         return 1
     except Exception:
         # Third-party exceptions can include URLs, headers or response bodies.
