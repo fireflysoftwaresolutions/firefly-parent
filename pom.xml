@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.fireflyframework</groupId>
         <artifactId>fireflyframework-parent</artifactId>
-        <version>26.10.20</version>
+        <version>26.10.23</version>
         <relativePath/>
     </parent>
 
@@ -42,7 +42,7 @@
 
     <properties>
         <!-- Firefly Framework BOM version (single source of truth) -->
-        <fireflyframework.bom.version>26.10.20</fireflyframework.bom.version>
+        <fireflyframework.bom.version>26.10.23</fireflyframework.bom.version>
 
         <!-- Firefly project conventions -->
         <openplatform.repository>${project.artifactId}</openplatform.repository>
