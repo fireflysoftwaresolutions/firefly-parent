@@ -193,14 +193,14 @@ def plugin(model, artifact, managed=False):
 def assert_consumer(path):
     m=E.parse(path).getroot()
     deps={x.findtext('m:artifactId',namespaces=NS):x.findtext('m:version',namespaces=NS) for x in m.findall('m:dependencies/m:dependency',NS)}
-    assert deps['fireflyframework-r2dbc']=='26.10.20'
+    assert deps['fireflyframework-r2dbc']=='26.10.23'
     assert deps['postgresql']=='42.7.14'
     for artifact,version in [('maven-compiler-plugin','3.15.0'),('openapi-generator-maven-plugin','7.26.0')]:
         assert plugin(m,artifact).findtext('m:version',namespaces=NS)==version
     assert plugin(m,'maven-surefire-plugin',True).findtext('m:version',namespaces=NS)=='3.6.0'
     assert plugin(m,'flatten-maven-plugin').findtext('m:configuration/m:flattenMode',namespaces=NS)=='resolveCiFriendliesOnly'
     assert m.findtext('m:properties/m:base.package',namespaces=NS)=='io.fireflysoftware'
-    assert m.findtext('m:properties/m:fireflyframework.bom.version',namespaces=NS)=='26.10.20'
+    assert m.findtext('m:properties/m:fireflyframework.bom.version',namespaces=NS)=='26.10.23'
     managed={x.findtext('m:artifactId',namespaces=NS):x.findtext('m:version',namespaces=NS) for x in m.findall('m:dependencyManagement/m:dependencies/m:dependency',NS)}
     assert managed['core-banking-accounts-sdk']=='26.10.6'
 

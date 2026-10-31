@@ -33,6 +33,20 @@ def yaml_file(path):
 
 
 class CallerPolicyControls(unittest.TestCase):
+    def test_framework_parent_and_bom_use_one_published_train(self):
+        project = release.ET.parse(ROOT/'pom.xml').getroot()
+        ns = {'m':'http://maven.apache.org/POM/4.0.0'}
+        parent = project.find('m:parent', ns)
+        self.assertEqual(parent.findtext('m:groupId', namespaces=ns), 'org.fireflyframework')
+        self.assertEqual(parent.findtext('m:artifactId', namespaces=ns), 'fireflyframework-parent')
+        version = parent.findtext('m:version', namespaces=ns)
+        self.assertEqual(version, '26.10.23')
+        self.assertEqual(project.findtext('m:properties/m:fireflyframework.bom.version', namespaces=ns), version)
+        bom, = [row for row in project.findall('m:dependencyManagement/m:dependencies/m:dependency', ns)
+                if row.findtext('m:artifactId', namespaces=ns) == 'fireflyframework-bom']
+        self.assertEqual(bom.findtext('m:groupId', namespaces=ns), 'org.fireflyframework')
+        self.assertEqual(bom.findtext('m:version', namespaces=ns), '${fireflyframework.bom.version}')
+
     def policy(self):
         path = ROOT/'.github/release-policy.json'
         self.assertTrue(path.is_file(), 'Reviewed repository release policy is missing')

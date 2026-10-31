@@ -20,10 +20,14 @@ Parent POM for all **Firefly OpenPlatform** modules. It extends `org.fireflyfram
 | Concern | Description |
 |---------|-------------|
 | **Firefly Framework BOM** | Imports `org.fireflyframework:fireflyframework-bom` so that all `org.fireflyframework` artifact versions are managed centrally |
-| **Framework version** | Single source of truth for `fireflyframework.bom.version` (currently **26.10.20**, Spring Boot 4.1.1) |
+| **Framework version** | Single source of truth for `fireflyframework.bom.version` (currently **26.10.23**, Spring Boot 4.1.1) |
 | **Project conventions** | Shared OpenAPI code-gen properties (`base.package`, model/api package layout) |
 
 All third-party dependency versions (Spring Boot, Lombok, MapStruct, database drivers, testing frameworks, etc.) and plugin management are inherited from `fireflyframework-parent`. There is no need to redeclare them here.
+
+## One framework release train
+
+The framework parent and framework BOM select the same published Jafly version, **26.10.23**. All framework modules, adapters, batch capabilities, and published SDK artifacts share that release train; services inherit their versions. The CI caller guard rejects a mismatched parent/BOM pair. This source alignment does not publish a corrected OpenPlatform parent or qualify service adoption: the immutable published OpenPlatform parent26.10.6 still requires a new release and coordinated consumer updates.
 
 ## Inheritance Chain
 
@@ -47,13 +51,13 @@ Reference `firefly-parent` as the parent in your module's `pom.xml`. This excerp
 ```
 
 Your module then inherits:
-- All `org.fireflyframework` dependency versions (via the BOM at **26.10.20**)
+- All `org.fireflyframework` dependency versions (via the BOM at **26.10.23**)
 - All third-party dependency and plugin versions from `fireflyframework-parent`
 - Firefly OpenAPI code-generation conventions
 
 No need to declare `fireflyframework.bom.version` or import the `fireflyframework-bom` in your module — the parent handles it.
 
-**Maven Central** hosts the framework parent/BOM `26.10.20` (`https://repo1.maven.org/maven2/org/fireflyframework/fireflyframework-parent/26.10.20/`). Their availability does not prove that the separately published OpenPlatform `firefly-parent:26.10.6` works: that artifact lost the build-parent metadata during flattening. Adding a repository or installing the same OpenPlatform coordinates locally does not qualify the broken published parent. A new corrected parent release and coordinated consumer updates are required.
+**Maven Central** hosts the framework parent/BOM `26.10.23` (`https://repo1.maven.org/maven2/org/fireflyframework/fireflyframework-parent/26.10.23/`). Their availability does not prove that the separately published OpenPlatform `firefly-parent:26.10.6` works: that artifact lost the build-parent metadata during flattening. Adding a repository or installing the same OpenPlatform coordinates locally does not qualify the broken published parent. A new corrected parent release and coordinated consumer updates are required.
 
 ## Published parent contract
 
@@ -78,7 +82,7 @@ The script retains the original Git-source `ossrh` failure and corrected-mode re
 
 | Property | Value | Purpose |
 |----------|-------|---------|
-| `fireflyframework.bom.version` | `26.10.20` | Version of the Firefly Framework BOM (Boot 4.1.1 train) |
+| `fireflyframework.bom.version` | `26.10.23` | Version of the Firefly Framework BOM (Boot 4.1.1 train) |
 | `base.package` | `io.fireflysoftware` | Root Java package for all modules |
 | `openapi.base.package` | `${base.package}.${project.artifactId}` | OpenAPI code-gen base package |
 | `openapi.model.package` | `…interfaces.dto` | Generated DTO package |
@@ -139,11 +143,11 @@ The generated spec will be at `your-module-web/target/openapi/openapi.yml`. To s
 | `openapi.gen.skip` | `true` | Set to `false` in `-web` modules to enable generation |
 | `openapi.gen.mainClass` | _(none)_ | Fully qualified class name of the `OpenApiGenApplication` |
 
-## Consuming jafly 26.10.20 (OpenPlatform)
+## Consuming jafly 26.10.23 (OpenPlatform)
 
 | Item | Value |
 |------|-------|
-| Framework parent / BOM | `org.fireflyframework:fireflyframework-parent` / `fireflyframework-bom` **26.10.20** |
+| Framework parent / BOM | `org.fireflyframework:fireflyframework-parent` / `fireflyframework-bom` **26.10.23** |
 | Spring Boot | **4.1.1** |
 | Spring Cloud | **2025.1.3** |
 | Java | **25** (`JAVA_HOME` must be JDK 25; Maven on JDK 26 will fail toolchain/source checks) |
@@ -156,12 +160,12 @@ The generated spec will be at `your-module-web/target/openapi/openapi.yml`. To s
 <parent>
     <groupId>org.fireflyframework</groupId>
     <artifactId>fireflyframework-parent</artifactId>
-    <version>26.10.20</version>
+    <version>26.10.23</version>
     <relativePath/>
 </parent>
 ```
 
-Central coordinates: `https://repo1.maven.org/maven2/org/fireflyframework/fireflyframework-parent/26.10.20/`.
+Central coordinates: `https://repo1.maven.org/maven2/org/fireflyframework/fireflyframework-parent/26.10.23/`.
 
 ### Dual-repo profile (optional GitHub Packages)
 
@@ -171,13 +175,13 @@ Activate only when Central is unreachable (air-gapped / pre-sync CI):
 mvn -Pjafly-packages …   # server id firefly-github, PAT with read:packages
 ```
 
-Prefer Central for **26.10.20+**. Leave `-Pjafly-packages` off by default. Alternative: `./mvnw install` from a local `fireflyframework-jafly` checkout.
+Prefer Central for **26.10.23+**. Leave `-Pjafly-packages` off by default. Consumer qualification uses the verified published framework artifacts. A local framework source build is development evidence and must not replace published coordinates in the qualification cache.
 
 ### Boot 4 / OpenAPI regeneration notes
 
 When bumping a service onto this parent:
 
-1. Adopt a separately approved corrected parent release and update the service's parent version. Do not install this source checkpoint under the already published `firefly-parent:26.10.6` coordinates as a consumer workaround; the framework BOM remains pinned to **26.10.20**.
+1. Adopt a separately approved corrected parent release and update the service's parent version. Do not install this source checkpoint under the already published `firefly-parent:26.10.6` coordinates as a consumer workaround; the framework BOM remains pinned to **26.10.23**.
 2. In each `-sdk` module: drop hardcoded `openapi-generator.version` / Jackson / swagger pins; inherit plugin + dependency versions from `fireflyframework-parent`; set `useJakartaEe=true` on the webclient generator; keep `javax.annotation-api` only while the generator still emits `javax.annotation.Generated`; add `spring-webflux` for the WebClient SDK runtime.
 3. Apply Boot 4 config migrations from the [jafly Boot 4 guide](https://github.com/fireflyframework/fireflyframework-jafly/blob/main/docs/migration/boot4-application-guide.md) where used: `spring.jackson2.*` (not `spring.jackson.*`), OTLP tracing keys, Testcontainers 2 module names, springdoc 3.x.
 4. Regenerate OpenAPI via the parent `generate-openapi` profile (`openapi.gen.skip=false` on `-web`); skip with `-DskipOpenApiGen` when iterating compile-only.
