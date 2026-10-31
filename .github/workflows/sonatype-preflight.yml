@@ -1,0 +1,32 @@
+name: Read-only Sonatype namespace inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the exact workflow source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read account-visible Sonatype deployment coordinates
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: python3 -B scripts/sonatype_deployments.py --output sonatype-deployments.json
+      - name: Retain the bounded read-only inventory report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sonatype-deployments-${{ github.run_id }}-${{ github.run_attempt }}
+          path: sonatype-deployments.json
+          if-no-files-found: error
+          retention-days: 7

@@ -16,5 +16,6 @@
         ".pom": ".flattened-pom.xml"
       }
     }
-  ]
+  ],
+  "signing_fingerprint": "A89AED672B71B245F3E1C6260933FD1E179EF8A1"
 }

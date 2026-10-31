@@ -106,8 +106,36 @@ class CallerPolicyControls(unittest.TestCase):
 
     def test_unreviewed_signing_key_refuses_central(self):
         with tempfile.TemporaryDirectory() as folder:
+            policy = self.policy()
+            policy.pop('signing_fingerprint', None)
             with self.assertRaisesRegex(ValueError,'Reviewed full signing fingerprint'):
-                release.central_bundle(Path(folder),[],Path(folder),self.policy(),{})
+                release.central_bundle(Path(folder),[],Path(folder),policy,{})
+
+
+    def test_central_uses_the_reviewed_prior_publisher_primary_fingerprint(self):
+        policy = self.policy()
+        self.assertEqual(policy.get('signing_fingerprint'), 'A89AED672B71B245F3E1C6260933FD1E179EF8A1')
+        import base64
+        import zipfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); frozen = root/'frozen'; frozen.mkdir()
+            pom = frozen/'firefly-parent.pom'; pom.write_bytes(b'<project/>')
+            calls = []
+            def command(args, **kwargs):
+                calls.append(args)
+                if '--detach-sign' in args:
+                    self.assertEqual(args[args.index('--local-user')+1], 'A89AED672B71B245F3E1C6260933FD1E179EF8A1')
+                    Path(args[args.index('--output')+1]).write_bytes(b'SYNTHETIC-SIGNATURE-NOT-PROOF')
+                return subprocess.CompletedProcess(args, 0)
+            with patch.object(release, 'command', side_effect=command):
+                bundle, extra = release.central_bundle(frozen, [{'path':pom.name}], root, policy,
+                        {'GPG_PRIVATE_KEY':base64.b64encode(b'SYNTHETIC-NOT-A-KEY').decode(),
+                         'MAVEN_GPG_PASSPHRASE':'SYNTHETIC-NOT-A-SECRET'})
+            self.assertEqual([args[2] for args in calls], ['--import', '--pinentry-mode', '--verify'])
+            self.assertEqual(len(extra), 5)
+            with zipfile.ZipFile(bundle) as archive:
+                self.assertEqual(archive.read('firefly-parent.pom'), b'<project/>')
 
 
 if __name__ == '__main__':
