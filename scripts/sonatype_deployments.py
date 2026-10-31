@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 
 ENDPOINT = 'https://central.sonatype.com/api/v1/publisher/deployments'
+STATUS_ENDPOINT = 'https://central.sonatype.com/api/v1/publisher/status'
 NAMESPACE = 'io.fireflysoftware'
 STATES = {'VALIDATING', 'VALIDATED', 'PUBLISHING', 'PUBLISHED', 'FAILED'}
 MAX_BYTES = 2 * 1024 * 1024
@@ -67,6 +68,20 @@ def fetch(opener, bearer, page, size):
     url = ENDPOINT + '?' + query
     request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + bearer,
                                      'Accept': 'application/json', 'Accept-Encoding': 'identity'}, method='GET')
+    return fetch_json(opener, request)
+
+
+def fetch_status(opener, bearer, identifier):
+    if not isinstance(identifier, str) or not IDENTIFIER.fullmatch(identifier):
+        raise InventoryError('Portal status deployment identity is unsupported.')
+    url = STATUS_ENDPOINT + '?' + urllib.parse.urlencode({'id': identifier})
+    request = urllib.request.Request(url, data=b'', headers={'Authorization': 'Bearer ' + bearer,
+                                     'Accept': 'application/json', 'Accept-Encoding': 'identity'}, method='POST')
+    return fetch_json(opener, request)
+
+
+def fetch_json(opener, request):
+    url = request.full_url
     try:
         with opener.open(request, timeout=10) as response:
             if response.status != 200 or response.geturl() != url:
@@ -192,7 +207,7 @@ def maven_coordinate(component):
     return artifact, version, tuple(sorted(qualifiers.items()))
 
 
-def project(row):
+def project(row, missing=None):
     if not isinstance(row, dict):
         raise InventoryError('Portal deployment is unsupported.')
     identifier = row.get('deploymentId')
@@ -205,13 +220,45 @@ def project(row):
         raise InventoryError('Portal deployment components are missing or unsupported.')
     coordinates = set()
     for component in components:
-        coordinates.add(maven_coordinate(component))
+        try:
+            coordinates.add(maven_coordinate(component))
+        except InventoryError as error:
+            if (missing is None or error.reason_code != 'PURL_MISSING'
+                    or not isinstance(component, dict) or component.get('purl') is not None):
+                raise
+            missing.append(error.component_schema)
     return {'deploymentId': identifier, 'state': state,
             'createTimestamp': timestamp(row.get('createTimestamp')),
             'updateTimestamp': timestamp(row.get('updateTimestamp')),
             'components': [{'groupId': NAMESPACE, 'artifactId': artifact, 'version': version,
                             **({'qualifiers': dict(qualifiers)} if qualifiers else {})}
                            for artifact, version, qualifiers in sorted(coordinates)]}
+
+
+def reconcile_status(opener, bearer, safe, missing):
+    reply = fetch_status(opener, bearer, safe['deploymentId'])
+    if reply.get('deploymentId') != safe['deploymentId'] or reply.get('deploymentState') != safe['state']:
+        raise InventoryError('Portal status identity or state does not match its listed deployment.')
+    purls = reply.get('purls')
+    if not isinstance(purls, list) or not purls or len(purls) > 10000:
+        raise InventoryError('Portal status PURLs are missing or unsupported.')
+    coordinates = set()
+    for purl in purls:
+        coordinate = maven_coordinate({'purl': purl})
+        if coordinate in coordinates:
+            raise InventoryError('Portal status PURLs have ambiguous duplicate identities.')
+        coordinates.add(coordinate)
+    known = {(item['artifactId'], item['version'], tuple(sorted(item.get('qualifiers', {}).items())))
+             for item in safe['components']}
+    if not known.issubset(coordinates):
+        raise InventoryError('Portal status omits known listing coordinates.')
+    safe['statusComponents'] = [{'groupId': NAMESPACE, 'artifactId': artifact, 'version': version,
+                                **({'qualifiers': dict(qualifiers)} if qualifiers else {})}
+                               for artifact, version, qualifiers in sorted(coordinates)]
+    # The published status contract does not map these PURLs to missing listing rows.
+    safe['unresolvedComponentCount'] = len(missing)
+    safe['componentSchema'] = missing[0]
+    return len(purls)
 
 
 def sweep(opener, bearer, page_size):
@@ -239,11 +286,14 @@ def sweep(opener, bearer, page_size):
         if not isinstance(deployments, list) or len(deployments) != min(size, total - number * size):
             raise InventoryError('Portal page is incomplete.')
         for row in deployments:
-            safe = project(row)
+            missing = []
+            safe = project(row, missing)
             if safe['deploymentId'] in identifiers:
                 raise InventoryError('Portal deployment was repeated across pages.')
             identifiers.add(safe['deploymentId'])
             total_components += len(row['deploymentComponents'])
+            if missing:
+                total_components += reconcile_status(opener, bearer, safe, missing)
             if total_components > MAX_COMPONENTS:
                 raise InventoryError('Portal inventory exceeded the component limit.')
             rows.append(safe)
@@ -266,6 +316,16 @@ def collect(bearer, opener=None, page_size=100):
     if first != second:
         raise InventoryError('Portal inventory changed between complete sweeps.')
     metadata, rows = first
+    unresolved = [row for row in rows if 'unresolvedComponentCount' in row]
+    if unresolved:
+        report = incomplete('Portal component Maven coordinates are unsupported.', 'PURL_MISSING',
+                            unresolved[0]['componentSchema'])
+        report['statusReconciliation'] = {
+            'coverage': 'PURL_COVERAGE_UNPROVEN', 'matchingSweeps': 2,
+            'unresolvedComponentCount': sum(row['unresolvedComponentCount'] for row in unresolved),
+            'deployments': [{key: value for key, value in row.items() if key != 'componentSchema'}
+                            for row in rows]}
+        return report
     return {'schema': 1, 'status': 'ACCOUNT_VISIBLE_NAMESPACE_STABLE_TWO_SWEEPS',
             'namespace': NAMESPACE, 'endpoint': ENDPOINT, 'atomicSnapshot': False,
             'completenessScope': 'Documented account-visible namespace listing; two identical complete sweeps only.',
@@ -294,7 +354,7 @@ def worker(output):
         bearer = token(os.environ.get('SONATYPE_USERNAME', ''), os.environ.get('SONATYPE_PASSWORD', ''))
         report = collect(bearer)
         write_report(output, report)
-        return 0
+        return 0 if report['status'] == 'ACCOUNT_VISIBLE_NAMESPACE_STABLE_TWO_SWEEPS' else 1
     except InventoryError as error:
         write_report(output, incomplete(str(error), error.reason_code, error.component_schema))
         return 1
