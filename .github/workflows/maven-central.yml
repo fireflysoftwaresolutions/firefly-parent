@@ -2,13 +2,27 @@ name: Maven Central
 
 on:
   workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Validate only; publication requires all coordinated release gates
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 jobs:
   maven-central:
-    uses: fireflysoftwaresolutions/.github/.github/workflows/java-release.yml@main
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: fireflysoftwaresolutions/.github/.github/workflows/java-release.yml@7b046ce67239bf889ab68e380614ba34723c9392
     permissions:
-      contents: read
+      actions: read
+      contents: write
+      packages: write
     with:
       java-version: '25'
+      release-tag: ${{ github.ref_name }}
+      release-policy: .github/release-policy.json
       destination: central
+      dry-run: ${{ github.event_name == 'push' || inputs.dry-run }}
     secrets: inherit
